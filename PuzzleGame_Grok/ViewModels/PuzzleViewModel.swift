@@ -75,11 +75,37 @@ class PuzzleViewModel: ObservableObject {
         if let index = pieceStates.firstIndex(where: { $0.piece.id == id }) {
             let state = pieceStates[index]
             if !state.isPlaced {
+                // Find the nearest cell center
+                var minDistance = CGFloat.infinity
+                var nearestPosition = state.pilePosition
+                
+                for row in 0..<3 {
+                    for col in 0..<4 {
+                        let cellCenter = cellCenters[row][col]
+                        let distance = sqrt(
+                            pow(position.x - cellCenter.x, 2) +
+                            pow(position.y - cellCenter.y, 2)
+                        )
+                        
+                        if distance < minDistance {
+                            minDistance = distance
+                            nearestPosition = cellCenter
+                        }
+                    }
+                }
+                
+                // If dropped near the correct position and rotation is correct
                 let correctPosition = cellCenters[state.piece.correctRow][state.piece.correctColumn]
-                let distance = sqrt(pow(position.x - correctPosition.x, 2) + pow(position.y - correctPosition.y, 2))
-                if distance < 50 && state.currentRotation == state.piece.correctRotation {
+                let isNearCorrectPosition = sqrt(
+                    pow(nearestPosition.x - correctPosition.x, 2) +
+                    pow(nearestPosition.y - correctPosition.y, 2)
+                ) < 10 // Smaller threshold for more precise placement
+                
+                if isNearCorrectPosition && state.currentRotation == state.piece.correctRotation {
                     pieceStates[index].position = correctPosition
                     pieceStates[index].isPlaced = true
+                } else if minDistance < 100 { // Allow dropping in any cell if within range
+                    pieceStates[index].position = nearestPosition
                 } else {
                     pieceStates[index].position = state.pilePosition
                 }

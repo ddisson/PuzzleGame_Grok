@@ -22,11 +22,23 @@ struct GameView: View {
             ZStack {
                 Color.white.edgesIgnoringSafeArea(.all)
                 
-                // Canvas Area
-                Rectangle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: viewModel.canvasArea.width, height: viewModel.canvasArea.height)
-                    .position(x: viewModel.canvasArea.midX, y: viewModel.canvasArea.midY)
+                // Canvas Area with Grid
+                VStack(spacing: 0) {
+                    ForEach(0..<3) { row in
+                        HStack(spacing: 0) {
+                            ForEach(0..<4) { column in
+                                Rectangle()
+                                    .fill(Color.gray.opacity(0.1))
+                                    .frame(
+                                        width: viewModel.canvasArea.width / 4,
+                                        height: viewModel.canvasArea.height / 3
+                                    )
+                                    .border(Color.gray.opacity(0.3), width: 1)
+                            }
+                        }
+                    }
+                }
+                .position(x: viewModel.canvasArea.midX, y: viewModel.canvasArea.midY)
                 
                 // Puzzle Pieces
                 ForEach(viewModel.pieceStates) { state in
@@ -84,7 +96,7 @@ struct PuzzlePieceView: View {
         Image(uiImage: state.piece.image)
             .resizable()
             .scaledToFit()
-            .frame(width: 150, height: 150) // Matches canvas cell size
+            .frame(width: 150, height: 150)
             .rotationEffect(Angle(degrees: Double(state.currentRotation * 90)))
             .offset(isDragging ? dragOffset : .zero)
             .position(isDragging ? state.position + dragOffset : state.position)
@@ -105,19 +117,21 @@ struct PuzzlePieceView: View {
                         }
                     }
             )
+            .onTapGesture(count: 2) { // Double tap to rotate
+                if !state.isPlaced {
+                    let newRotation = (state.currentRotation + 1) % 4
+                    onRotationChange(newRotation)
+                }
+            }
             .gesture(
                 RotationGesture()
                     .onChanged { angle in
                         if !state.isPlaced {
-                            // Show rotation in real-time
-                        }
-                    }
-                    .onEnded { angle in
-                        if !state.isPlaced {
-                            let totalDegrees = Double(state.currentRotation * 90) + angle.degrees
-                            let snappedDegrees = round(totalDegrees / 90) * 90
-                            let newRotation = Int(snappedDegrees / 90) % 4
-                            onRotationChange(newRotation)
+                            // Show rotation preview
+                            let degrees = angle.degrees
+                            let snappedDegrees = round(degrees / 90) * 90
+                            let preview = Int(snappedDegrees / 90) % 4
+                            onRotationChange(preview)
                         }
                     }
             )
