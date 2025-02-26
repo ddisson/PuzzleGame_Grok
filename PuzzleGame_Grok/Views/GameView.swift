@@ -177,13 +177,23 @@ struct GameView: View {
                                             viewModel.updatePieceRotation(id: tappedPieceID, rotation: newRotation)
                                         }
                                     },
-                                    onDragStarted: { pieceID, position in
+                                    onDragStarted: { pieceID in
                                         // When drag starts, update the state immediately
                                         print("Drag started for piece \(pieceID)")
-                                        draggingPieceID = pieceID
-                                        draggedPiecePosition = position
-                                        // Update the view model
-                                        viewModel.handleDrop(id: pieceID, position: position, isDragEnded: false)
+                                        
+                                        // Get the piece state
+                                        if let pieceState = viewModel.pieceStates.first(where: { $0.id == pieceID }) {
+                                            // Set the dragging piece ID
+                                            draggingPieceID = pieceID
+                                            
+                                            // Mark the piece as being dragged in the view model
+                                            viewModel.markPieceAsDragging(id: pieceID)
+                                            
+                                            // Use the piece's current position directly
+                                            draggedPiecePosition = pieceState.position
+                                            
+                                            print("Starting drag for piece at position: \(pieceState.position)")
+                                        }
                                     }
                                 )
                             }
@@ -218,6 +228,7 @@ struct GameView: View {
                         ),
                         viewModel: viewModel
                     )
+                    .id(dragID) // Force view recreation when the dragged piece changes
                 }
                 
                 // Final Puzzle Image
@@ -272,7 +283,7 @@ struct PieceInStackPlaceholder: View {
     var state: PuzzlePieceState
     var cellSize: CGFloat
     var onTapAction: (UUID) -> Void
-    var onDragStarted: (UUID, CGPoint) -> Void
+    var onDragStarted: (UUID) -> Void
     
     @State private var isPressed: Bool = false
     @State private var isDragging: Bool = false
@@ -289,37 +300,26 @@ struct PieceInStackPlaceholder: View {
                 .animation(.easeInOut(duration: 0.1), value: isPressed) // Faster animation
         }
         .contentShape(Rectangle()) // Make the entire area tappable
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 5, coordinateSpace: .global) // Small distance for better distinction between tap and drag
-                .onChanged { gesture in
-                    // Show visual feedback that we're dragging
-                    isPressed = true
-                    
-                    // Only start a new drag if we're not already dragging
-                    if !isDragging {
-                        isDragging = true
-                        let location = gesture.location
-                        onDragStarted(state.id, location)
-                    }
-                }
-                .onEnded { _ in
-                    // Reset pressed state when drag ends
-                    isPressed = false
-                    isDragging = false
-                }
-        )
-        // Add double-tap to rotate the piece
         .onTapGesture(count: 2) {
             onTapAction(state.id)
         }
-        // Add single tap for visual feedback without freezing
-        // .onTapGesture(count: 1) {
-        //     // Just show a brief highlight effect
-        //     isPressed = true
-        //     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-        //         isPressed = false
-        //     }
-        // }
+        // Use a simpler approach - just a tap gesture to start dragging
+        .onTapGesture(count: 1) {
+            // Only start a drag if we're not already dragging
+            if !isDragging {
+                isPressed = true
+                isDragging = true
+                
+                // Notify that dragging has started
+                onDragStarted(state.id)
+                
+                // Reset the pressed state after a short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isPressed = false
+                    isDragging = false
+                }
+            }
+        }
     }
 }
 
@@ -330,7 +330,10 @@ struct DraggablePieceView: View {
     @Binding var isDragging: Bool
     @ObservedObject var viewModel: PuzzleViewModel
     
-    @State private var dragOffset: CGSize = .zero
+    // Track the drag state
+    @State private var dragLocation: CGPoint = .zero
+    @State private var isDraggingActive: Bool = false
+    @GestureState private var fingerLocation: CGPoint = .zero
     
     var body: some View {
         let pieceState = viewModel.pieceStates.first(where: { $0.id == pieceID })
@@ -345,48 +348,63 @@ struct DraggablePieceView: View {
                 .scaleEffect(1.05)
                 .shadow(color: .blue.opacity(0.5), radius: 10)
                 .gesture(
-                    DragGesture(coordinateSpace: .global)
-                        .onChanged { gesture in
-                            // Calculate initial offset on first touch
-                            if dragOffset == .zero {
-                                dragOffset = CGSize(
-                                    width: gesture.startLocation.x - position.x,
-                                    height: gesture.startLocation.y - position.y
+                    DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .updating($fingerLocation) { value, state, _ in
+                            state = value.location
+                        }
+                        .onChanged { value in
+                            if !isDraggingActive {
+                                isDraggingActive = true
+                                // Calculate the offset from the touch point to the piece center
+                                dragLocation = CGPoint(
+                                    x: value.startLocation.x - position.x,
+                                    y: value.startLocation.y - position.y
                                 )
+                                print("Drag started at: \(value.startLocation), piece at: \(position), offset: \(dragLocation)")
                             }
                             
-                            // Update the piece position directly with finger tracking
+                            // Calculate new position by subtracting the offset from the current finger position
                             let newPosition = CGPoint(
-                                x: gesture.location.x - dragOffset.width,
-                                y: gesture.location.y - dragOffset.height
+                                x: value.location.x - dragLocation.x,
+                                y: value.location.y - dragLocation.y
                             )
                             
-                            // Update position for UI
+                            // Update the position
                             position = newPosition
                             
-                            // Tell the view model the piece is being dragged
+                            // Update the view model
                             viewModel.handleDrop(id: pieceID, position: newPosition, isDragEnded: false)
                         }
-                        .onEnded { gesture in
+                        .onEnded { value in
                             // Calculate final position
                             let finalPosition = CGPoint(
-                                x: gesture.location.x - dragOffset.width,
-                                y: gesture.location.y - dragOffset.height
+                                x: value.location.x - dragLocation.x,
+                                y: value.location.y - dragLocation.y
                             )
                             
-                            // Finalize the position and tell the view model the drag ended
+                            // Update the position
                             position = finalPosition
-                            isDragging = false
+                            
+                            // Tell the view model the drag has ended
                             viewModel.handleDrop(id: pieceID, position: finalPosition, isDragEnded: true)
                             
-                            // Reset drag offset for next time
-                            dragOffset = .zero
+                            // Reset the drag state
+                            isDragging = false
+                            isDraggingActive = false
+                            dragLocation = .zero
                         }
                 )
                 // Double tap to rotate while dragging
                 .onTapGesture(count: 2) {
                     let newRotation = (state.currentRotation + 1) % 4
                     viewModel.updatePieceRotation(id: pieceID, rotation: newRotation)
+                }
+                .onAppear {
+                    // Start dragging immediately
+                    isDraggingActive = true
+                    
+                    // Print the initial position for debugging
+                    print("DraggablePieceView appeared with position: \(position)")
                 }
         }
     }

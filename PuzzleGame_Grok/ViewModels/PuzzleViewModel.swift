@@ -88,16 +88,17 @@ class PuzzleViewModel: ObservableObject {
                 pieceStates[stateIndex].pilePosition = newPosition
                 
                 // Only update position if not being dragged
+                // IMPORTANT: Check against draggedPieceID to prevent repositioning during drag
                 if pieceStates[stateIndex].isInPile && 
                    !pieceStates[stateIndex].isPlaced && 
                    draggedPieceID != stateID {
                     pieceStates[stateIndex].position = newPosition
                 }
-                
-                // Force update to ensure UI refreshes
-                objectWillChange.send()
             }
         }
+        
+        // Force update to ensure UI refreshes
+        objectWillChange.send()
     }
     
     func updateCanvasArea(_ newArea: CGRect) {
@@ -183,6 +184,25 @@ class PuzzleViewModel: ObservableObject {
         return pieceStates.filter { !$0.isPlaced }
     }
     
+    // Mark a piece as being dragged - call this when starting a drag
+    func markPieceAsDragging(id: UUID) {
+        // Set the dragged piece ID
+        draggedPieceID = id
+        
+        // Find the piece in the states array
+        if let index = pieceStates.firstIndex(where: { $0.id == id }) {
+            // Mark it as not in the pile while dragging
+            pieceStates[index].isInPile = false
+            
+            // Store the current position for debugging
+            let currentPosition = pieceStates[index].position
+            print("Marking piece as dragging. Current position: \(currentPosition)")
+            
+            // Force UI update
+            objectWillChange.send()
+        }
+    }
+    
     func updatePieceRotation(id: UUID, rotation: Int) {
         if let index = pieceStates.firstIndex(where: { $0.piece.id == id }) {
             pieceStates[index].currentRotation = rotation
@@ -192,6 +212,9 @@ class PuzzleViewModel: ObservableObject {
     func handleDrop(id: UUID, position: CGPoint, isDragEnded: Bool) {
         if let index = pieceStates.firstIndex(where: { $0.piece.id == id }) {
             let state = pieceStates[index]
+            
+            // Print the current position for debugging
+            print("handleDrop called for piece \(id). Current position: \(state.position), New position: \(position), isDragEnded: \(isDragEnded)")
             
             // Special handling for unplaced pieces
             if !state.isPlaced {
